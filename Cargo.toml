@@ -9,4 +9,4 @@ proc-macro = true
 
 [dependencies]
 lazy_static = "1.4.0"
-syn = { version = "2.0.26", features=["full"] }
+syn = { version = "2.0.26", features=["full", "extra-traits"] }
