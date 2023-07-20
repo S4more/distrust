@@ -1,8 +1,8 @@
 #![feature(proc_macro_quote)]
 extern crate proc_macro;
-use std::sync::{Arc, Mutex};
+use std::{sync::{Arc, Mutex}, str::FromStr};
 use quote::format_ident;
-use syn::{ItemFn, FnArg, __private::ToTokens, Pat, parse_str, ExprTuple};
+use syn::{ItemFn, FnArg, __private::ToTokens, Pat, parse_str, ExprTuple, punctuated::Punctuated, token::Comma, Expr};
 
 use proc_macro2::{TokenStream, Ident, Span};
 use lazy_static::lazy_static;
@@ -124,6 +124,7 @@ fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStrea
         .map(|f| parse_str(f.raw.as_str()).unwrap())
         .collect();
 
+    let mut arg_definitions: Vec<TokenStream> = vec![];
     let mut arg_names: Vec<ExprTuple> = vec![];
     for function in functions.iter() {
         let arg_list: String = function
@@ -133,12 +134,28 @@ fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStrea
             .collect::<Vec<String>>()
             .join(",");
 
-        let arg_list = format!("({})", arg_list);
+        let arg_definition: String = function
+            .arguments
+            .iter()
+            .map(|arg| format!("{}:{}", arg.0.clone(), arg.1.clone()))
+            .collect::<Vec<String>>()
+            .join(",");
 
-        arg_names.push(parse_str(arg_list.as_str()).unwrap())
+        let arg_list = format!("({})", arg_list);
+        let arg_definition = format!("({})", arg_definition);
+
+        arg_names.push(parse_str(arg_list.as_str()).unwrap());
+        arg_definitions.push(TokenStream::from_str(arg_definition.as_str()).unwrap());
     };
 
-    let function_names: Vec<Ident> = functions
+
+    let wrapper_function_name_list: Vec<Ident> = functions
+        .iter()
+        .map(|f| Ident::new(format!("internal_{}", f.name).as_str(), Span::call_site()))
+        .collect();
+
+
+    let function_name_list: Vec<Ident> = functions
         .iter()
         .map(|f| Ident::new(f.name.as_str(), Span::call_site()))
         .collect();
@@ -149,15 +166,21 @@ fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStrea
         .collect();
 
     let enum_arms = quote::quote! {
-        #( Distributable::#function_names_pascal #arg_names => #function_names #arg_names),*
+        #( Distributable::#function_names_pascal #arg_names => #wrapper_function_name_list #arg_names),*
     };
 
-
+    println!("{:?}", arg_definitions);
 
     let middleware_part = build_middleware_function();
     let function = quote::quote! {
         fn redirect_to_function(d: Distributable, function_name: String) {
-            #(#function_definitions);*
+            #(
+                fn #wrapper_function_name_list #arg_definitions {
+                    #function_definitions
+
+                    #function_name_list #arg_names
+                };
+            );*
 
             #middleware_part
 
