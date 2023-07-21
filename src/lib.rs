@@ -25,7 +25,7 @@ struct DistributableFunction {
 
 impl DistributableFunction {
     fn parse(stream: &proc_macro::TokenStream) -> ItemFn {
-        let item: ItemFn = parse_str(stream.to_string().as_str()).unwrap();
+        let item: ItemFn = parse_str(&stream.to_string()).unwrap();
         item
     }
 
@@ -115,7 +115,7 @@ pub fn build(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let arg_list = format!("({})", arg_list);
 
         println!("{}", arg_list);
-        arg_types.push(parse_str(arg_list.as_str()).unwrap())
+        arg_types.push(parse_str(&arg_list).unwrap())
     }
 
     let function_return_type: Vec<TokenStream> = functions
@@ -145,7 +145,7 @@ pub fn build(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
 fn build_redirect_function(functions: &[DistributableFunction]) -> TokenStream {
     let function_definitions: Vec<ItemFn> = functions
         .iter()
-        .map(|f| parse_str(f.raw.as_str()).unwrap())
+        .map(|f| parse_str(&f.raw).unwrap())
         .collect();
 
     let mut arg_definitions: Vec<TokenStream> = vec![];
@@ -168,20 +168,20 @@ fn build_redirect_function(functions: &[DistributableFunction]) -> TokenStream {
         let arg_list = format!("({})", arg_list);
         let arg_definition = format!("({})", arg_definition);
 
-        arg_names.push(parse_str(arg_list.as_str()).unwrap());
-        arg_definitions.push(TokenStream::from_str(arg_definition.as_str()).unwrap());
+        arg_names.push(parse_str(&arg_list).unwrap());
+        arg_definitions.push(TokenStream::from_str(&arg_definition).unwrap());
     }
 
     // TODO: Combine these three transformations of each function as properties on a struct
     // This way only one loop is needed, and the association between the three can be more clear.
     let wrapper_function_name_list: Vec<Ident> = functions
         .iter()
-        .map(|f| Ident::new(format!("internal_{}", f.name).as_str(), Span::call_site()))
+        .map(|f| Ident::new(&format!("internal_{}", f.name), Span::call_site()))
         .collect();
 
     let function_name_list: Vec<Ident> = functions
         .iter()
-        .map(|f| Ident::new(f.name.as_str(), Span::call_site()))
+        .map(|f| Ident::new(&f.name, Span::call_site()))
         .collect();
 
     let function_names_pascal: Vec<Ident> = functions
@@ -226,12 +226,12 @@ fn build_middleware_function() -> TokenStream {
 
     let function_definitions: Vec<ItemFn> = functions
         .iter()
-        .map(|f| parse_str(f.raw.as_str()).unwrap())
+        .map(|f| parse_str(&f.raw).unwrap())
         .collect();
 
     let function_names: Vec<Ident> = functions
         .iter()
-        .map(|f| Ident::new(f.name.as_str(), Span::call_site()))
+        .map(|f| Ident::new(&f.name, Span::call_site()))
         .collect();
 
     let call_tupple = quote::quote! { (&d, function_name); };
