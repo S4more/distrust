@@ -5,16 +5,15 @@ use std::{
     str::FromStr,
     sync::{Arc, Mutex},
 };
-use syn::{FnArg, ItemFn, Pat, __private::ToTokens, parse_str, Expr, ExprTuple, ReturnType};
+use syn::{FnArg, ItemFn, Pat, __private::ToTokens, parse_str, Expr, ReturnType};
 
 use convert_case::{Case, Casing};
 use lazy_static::lazy_static;
 use proc_macro2::{Ident, Span, TokenStream};
 
 lazy_static! {
-    static ref FUNCTIONS: Arc<Mutex<Vec<DistributableFunction>>> = { Arc::new(Mutex::new(vec![])) };
-    static ref MIDDLEWARE: Arc<Mutex<Vec<DistributableFunction>>> =
-        { Arc::new(Mutex::new(vec![])) };
+    static ref FUNCTIONS: Arc<Mutex<Vec<DistributableFunction>>> = Arc::new(Mutex::new(vec![]));
+    static ref MIDDLEWARE: Arc<Mutex<Vec<DistributableFunction>>> = Arc::new(Mutex::new(vec![]));
 }
 
 struct DistributableFunction {
@@ -27,12 +26,12 @@ struct DistributableFunction {
 impl DistributableFunction {
     fn parse(stream: &proc_macro::TokenStream) -> ItemFn {
         let item: ItemFn = parse_str(stream.to_string().as_str()).unwrap();
-        return item;
+        item
     }
 
     fn new(stream: &proc_macro::TokenStream) -> Self {
         let mut types = vec![];
-        let item = Self::parse(&stream);
+        let item = Self::parse(stream);
 
         for i in item.sig.inputs.iter() {
             if let FnArg::Typed(t) = i {
@@ -50,14 +49,12 @@ impl DistributableFunction {
             ReturnType::Type(_, b) => quote::quote!(#b),
         };
 
-        let distributable_function = DistributableFunction {
+        DistributableFunction {
             name: item.sig.ident.to_string(),
             arguments: types,
             raw: item.to_token_stream().to_string(),
             return_type: return_quote.to_token_stream().to_string(),
-        };
-
-        distributable_function
+        }
     }
 }
 
@@ -145,7 +142,7 @@ pub fn build(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     tk.into()
 }
 
-fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStream {
+fn build_redirect_function(functions: &[DistributableFunction]) -> TokenStream {
     let function_definitions: Vec<ItemFn> = functions
         .iter()
         .map(|f| parse_str(f.raw.as_str()).unwrap())
@@ -219,7 +216,7 @@ fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStrea
 
     println!("{}", function.to_token_stream().to_string());
 
-    function.into()
+    function
 }
 
 fn build_middleware_function() -> TokenStream {
