@@ -1,6 +1,6 @@
 #![feature(proc_macro_quote)]
 extern crate proc_macro;
-use quote::format_ident;
+use quote::{format_ident, TokenStreamExt};
 use std::{
     str::FromStr,
     sync::{Arc, Mutex},
@@ -30,13 +30,13 @@ impl DistributableFunction {
     }
 
     fn new(stream: &proc_macro::TokenStream) -> Self {
-        let mut types = vec![];
+        let mut arguments = vec![];
         let item = Self::parse(stream);
 
         for i in item.sig.inputs.iter() {
             if let FnArg::Typed(t) = i {
                 if let Pat::Ident(named_arg) = &*t.pat {
-                    types.push((
+                    arguments.push((
                         named_arg.ident.to_string(),
                         t.ty.to_token_stream().to_string(),
                     ));
@@ -51,7 +51,7 @@ impl DistributableFunction {
 
         DistributableFunction {
             name: item.sig.ident.to_string(),
-            arguments: types,
+            arguments,
             raw: item.to_token_stream().to_string(),
             return_type: return_quote.to_token_stream().to_string(),
         }
@@ -172,6 +172,8 @@ fn build_redirect_function(functions: &[DistributableFunction]) -> TokenStream {
         arg_definitions.push(TokenStream::from_str(arg_definition.as_str()).unwrap());
     }
 
+    // TODO: Combine these three transformations of each function as properties on a struct
+    // This way only one loop is needed, and the association between the three can be more clear.
     let wrapper_function_name_list: Vec<Ident> = functions
         .iter()
         .map(|f| Ident::new(format!("internal_{}", f.name).as_str(), Span::call_site()))
