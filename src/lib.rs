@@ -2,7 +2,7 @@
 extern crate proc_macro;
 use std::{sync::{Arc, Mutex}, str::FromStr};
 use quote::format_ident;
-use syn::{ItemFn, FnArg, __private::ToTokens, Pat, parse_str, ExprTuple, punctuated::Punctuated, token::Comma, Expr};
+use syn::{ItemFn, FnArg, __private::ToTokens, Pat, parse_str, ExprTuple, Expr, ReturnType};
 
 use proc_macro2::{TokenStream, Ident, Span};
 use lazy_static::lazy_static;
@@ -22,6 +22,7 @@ struct DistributableFunction {
     name: String,
     arguments: Vec<(String, String)>,
     raw: String,
+    return_type: String
 }
 
 impl DistributableFunction {
@@ -42,12 +43,19 @@ impl DistributableFunction {
                 }
             };
         };
-        //
+        
+        let return_quote = match &item.sig.output {
+            ReturnType::Default => quote::quote!(()),
+            ReturnType::Type(_, b) => quote::quote!(#b),
+        };
+
         let distributable_function = DistributableFunction {
             name: item.sig.ident.to_string(),
             arguments: types,
             raw: item.to_token_stream().to_string(),
+            return_type:  return_quote.to_token_stream().to_string()
         };
+
 
         distributable_function
     }
@@ -92,7 +100,7 @@ pub fn build(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .map(|function| format_ident!("{}", function.name.clone().to_case(Case::Pascal)))
         .collect();
 
-    let mut arg_types : Vec<ExprTuple> = vec![];
+    let mut arg_types : Vec<Expr> = vec![];
     for function in functions.iter() {
         let arg_list: String = function
             .arguments
@@ -103,15 +111,29 @@ pub fn build(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         let arg_list = format!("({})", arg_list);
 
+        println!("{}", arg_list);
         arg_types.push(parse_str(arg_list.as_str()).unwrap())
 
     };
 
+    let function_return_type: Vec<TokenStream> = functions
+        .iter()
+        .map(|f| TokenStream::from_str(&f.return_type).unwrap())
+        .collect();
+
     let distributable_enum = quote::quote! {
+        #[derive(serde::Serialize, serde::Deserialize)]
         enum Distributable {
             #(#function_names #arg_types ),*
         }
+
+        #[derive(serde::Serialize, serde::Deserialize)]
+        enum ReverseDistributable {
+            #(#function_names(#function_return_type)),*
+        }
     };
+
+    println!("{}", distributable_enum.to_token_stream().to_string());
 
     build_redirect_function(&functions).to_tokens(&mut tk);
     distributable_enum.to_tokens(&mut tk);
@@ -125,7 +147,7 @@ fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStrea
         .collect();
 
     let mut arg_definitions: Vec<TokenStream> = vec![];
-    let mut arg_names: Vec<ExprTuple> = vec![];
+    let mut arg_names: Vec<Expr> = vec![];
     for function in functions.iter() {
         let arg_list: String = function
             .arguments
@@ -169,17 +191,19 @@ fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStrea
         #( Distributable::#function_names_pascal #arg_names => #wrapper_function_name_list #arg_names),*
     };
 
-    println!("{:?}", arg_definitions);
+    // We also need a reverse enum to match the return type to the function name
 
     let middleware_part = build_middleware_function();
     let function = quote::quote! {
-        fn redirect_to_function(d: Distributable, function_name: String) {
+        fn redirect_to_function(d: Distributable, function_name: String) ->ReverseDistributable {
             #(
-                fn #wrapper_function_name_list #arg_definitions {
+                fn #wrapper_function_name_list #arg_definitions -> ReverseDistributable {
                     #function_definitions
 
-                    #function_name_list #arg_names
-                };
+                    // Calling the inner function here
+                    let val = ReverseDistributable::#function_names_pascal(#function_name_list #arg_names);
+                    return val;
+                }
             );*
 
             #middleware_part
@@ -189,6 +213,8 @@ fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStrea
             }
         }
     };
+
+    println!("{}", function.to_token_stream().to_string());
 
     function.into()
 }
