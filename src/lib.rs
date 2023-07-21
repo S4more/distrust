@@ -161,7 +161,7 @@ fn build_redirect_function(functions: &[DistributableFunction]) -> TokenStream {
         let arg_definition: String = function
             .arguments
             .iter()
-            .map(|arg| format!("{}:{}", arg.0.clone(), arg.1.clone()))
+            .map(|(ty, name)| format!("{ty}:{name}"))
             .collect::<Vec<String>>()
             .join(",");
 
