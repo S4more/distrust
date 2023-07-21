@@ -1,6 +1,6 @@
 #![feature(proc_macro_quote)]
 extern crate proc_macro;
-use quote::{format_ident, TokenStreamExt};
+use quote::format_ident;
 use std::{
     str::FromStr,
     sync::{Arc, Mutex},
