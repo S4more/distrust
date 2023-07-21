@@ -59,35 +59,116 @@ impl DistributableFunction {
 
         distributable_function
     }
+
+    fn get_name(&self) -> Ident {
+        format_ident!("{}", self.name)
+    }
+
+    fn get_pascal_name(&self) -> Ident {
+        format_ident!("{}", self.name.to_case(Case::Pascal))
+    }
+
+    fn get_arg_types(&self) -> Expr {
+        let arg_list: String = self 
+            .arguments
+            .iter()
+            .map(|arg| arg.1.clone())
+            .collect::<Vec<String>>()
+            .join(",");
+
+        println!("{}", arg_list);
+
+
+        parse_str(&format!("({})", arg_list)).unwrap()
+    }
+
+    fn get_arg_names(&self) -> Expr {
+        let arg_names: String = self 
+            .arguments
+            .iter()
+            .map(|arg| arg.0.clone())
+            .collect::<Vec<String>>()
+            .join(",");
+
+
+        parse_str(&format!("({})", arg_names)).unwrap()
+    }
+
+    fn get_return_type(&self) -> TokenStream {
+        TokenStream::from_str(&self.return_type).unwrap()
+    }
+
+    fn get_item_fn(&self) -> ItemFn {
+        parse_str(self.raw.as_str()).unwrap()
+    }
+
+    fn get_full_arg_sig(&self) -> TokenStream {
+        let arg_definition: String = self 
+            .arguments
+            .iter()
+            .map(|arg| format!("{}:{}", arg.0.clone(), arg.1.clone()))
+            .collect::<Vec<String>>()
+            .join(",");
+
+        let arg_definition = format!("({})", arg_definition);
+
+        TokenStream::from_str(arg_definition.as_str()).unwrap()
+    }
+
+
 }
 
 
 #[proc_macro_attribute]
 pub fn middleware(_here: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let distributable_function = DistributableFunction::new(&item);
-    MIDDLEWARE.lock().unwrap().push(distributable_function);
-
+    let dt = DistributableFunction::new(&item);
     let item = DistributableFunction::parse(&item);
+    MIDDLEWARE.lock().unwrap().push(dt);
 
-    quote::quote! {
+
+    let quote = quote::quote! {
         #[allow(dead_code)]
         #item
-    }.into()
+    };
+
+    quote.into()
 }
 
 
 #[proc_macro_attribute]
 pub fn distributable(_here: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut lock = FUNCTIONS.lock().unwrap();
-    let distributable_function = DistributableFunction::new(&item);
-    let item = DistributableFunction::parse(&item);
+    let dt = DistributableFunction::new(&item);
 
-    lock.push(distributable_function);
+    let name = dt.get_name();
+    let name_string: String = dt.name.clone();
+    let pascal_name = dt.get_pascal_name();
+    let return_type = dt.get_return_type();
+    let full_arg_sig = dt.get_full_arg_sig();
+    let call_arg = dt.get_arg_names();
 
-    quote::quote! {
-        #[allow(dead_code)]
-        #item
-    }.into()
+    let quote = quote::quote! {
+        // #[allow(dead_code)]
+        // #item
+        fn #name #full_arg_sig -> #return_type {
+            let variant = redirect_to_function(
+                Distributable::#pascal_name #call_arg,
+                #name_string
+            );
+            if let ReverseDistributable::#pascal_name(val) = variant {
+                return val
+            } else {
+                panic!("Macro won't ever reach here.");
+            }
+        }
+
+
+    };
+    println!("{}", quote.to_token_stream().to_string());
+
+    lock.push(dt);
+
+    quote.into()
 }
 
 #[proc_macro]
@@ -97,28 +178,17 @@ pub fn build(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let function_names: Vec<Ident> = functions
         .iter()
-        .map(|function| format_ident!("{}", function.name.clone().to_case(Case::Pascal)))
+        .map(|function| function.get_pascal_name())
         .collect();
 
-    let mut arg_types : Vec<Expr> = vec![];
-    for function in functions.iter() {
-        let arg_list: String = function
-            .arguments
-            .iter()
-            .map(|arg| arg.1.clone())
-            .collect::<Vec<String>>()
-            .join(",");
-
-        let arg_list = format!("({})", arg_list);
-
-        println!("{}", arg_list);
-        arg_types.push(parse_str(arg_list.as_str()).unwrap())
-
-    };
+    let arg_types : Vec<Expr> = functions
+        .iter()
+        .map(|f| f.get_arg_types())
+        .collect();
 
     let function_return_type: Vec<TokenStream> = functions
         .iter()
-        .map(|f| TokenStream::from_str(&f.return_type).unwrap())
+        .map(|f| f.get_return_type())
         .collect();
 
     let distributable_enum = quote::quote! {
@@ -143,33 +213,18 @@ pub fn build(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
 fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStream {
     let function_definitions: Vec<ItemFn> = functions
         .iter()
-        .map(|f| parse_str(f.raw.as_str()).unwrap())
+        .map(|f| f.get_item_fn()) 
         .collect();
 
-    let mut arg_definitions: Vec<TokenStream> = vec![];
-    let mut arg_names: Vec<Expr> = vec![];
-    for function in functions.iter() {
-        let arg_list: String = function
-            .arguments
-            .iter()
-            .map(|arg| arg.0.clone())
-            .collect::<Vec<String>>()
-            .join(",");
+    let arg_definitions: Vec<TokenStream> = functions
+        .iter()
+        .map(|f| f.get_full_arg_sig())
+        .collect();
 
-        let arg_definition: String = function
-            .arguments
-            .iter()
-            .map(|arg| format!("{}:{}", arg.0.clone(), arg.1.clone()))
-            .collect::<Vec<String>>()
-            .join(",");
-
-        let arg_list = format!("({})", arg_list);
-        let arg_definition = format!("({})", arg_definition);
-
-        arg_names.push(parse_str(arg_list.as_str()).unwrap());
-        arg_definitions.push(TokenStream::from_str(arg_definition.as_str()).unwrap());
-    };
-
+    let arg_names: Vec<Expr> = functions
+        .iter()
+        .map(|f| f.get_arg_names())
+        .collect();
 
     let wrapper_function_name_list: Vec<Ident> = functions
         .iter()
@@ -179,12 +234,12 @@ fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStrea
 
     let function_name_list: Vec<Ident> = functions
         .iter()
-        .map(|f| Ident::new(f.name.as_str(), Span::call_site()))
+        .map(|f| f.get_name())
         .collect();
 
     let function_names_pascal: Vec<Ident> = functions
         .iter()
-        .map(|f| Ident::new(&f.name.to_case(Case::Pascal), Span::call_site()))
+        .map(|f| f.get_pascal_name())
         .collect();
 
     let enum_arms = quote::quote! {
@@ -195,7 +250,7 @@ fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStrea
 
     let middleware_part = build_middleware_function();
     let function = quote::quote! {
-        fn redirect_to_function(d: Distributable, function_name: String) ->ReverseDistributable {
+        fn redirect_to_function(d: Distributable, function_name: &str) ->ReverseDistributable {
             #(
                 fn #wrapper_function_name_list #arg_definitions -> ReverseDistributable {
                     #function_definitions
@@ -206,11 +261,17 @@ fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStrea
                 }
             );*
 
+            println!("[RedirectToFunction] function {}", &function_name);
+
             #middleware_part
 
-            match d {
+            let result = match d {
                 #enum_arms
-            }
+            };
+
+            println!("[RedirectToFunction] Returning from {}", &function_name);
+
+            return result
         }
     };
 
@@ -232,7 +293,7 @@ fn build_middleware_function() -> TokenStream {
         .map(|f| Ident::new(f.name.as_str(), Span::call_site()))
         .collect();
 
-    let call_tupple = quote::quote! { (&d, function_name); };
+    let call_tupple = quote::quote! { (&d, &function_name); };
 
 
     quote::quote! {
@@ -240,34 +301,4 @@ fn build_middleware_function() -> TokenStream {
         #(#function_names #call_tupple);*
     }
 
-}
-
-#[proc_macro]
-pub fn build_test(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let mut tk = proc_macro2::TokenStream::new();
-
-    let fn_1 = quote::quote! {
-        fn a() {
-            println!("This is printing something...");
-        }
-        a();
-    };
-
-    let fn_2 = quote::quote! {
-        fn b() {}
-    };
-
-    let function_definitions = vec![fn_1, fn_2];
-
-
-    let function = quote::quote! {
-        fn redirect_to_function_t() {
-            #(#function_definitions)*
-        }
-    };
-
-    println!("{:?}", function.to_string());
-
-    tk.extend(function);
-    tk.into()
 }
