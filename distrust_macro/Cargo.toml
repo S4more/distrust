@@ -1,0 +1,19 @@
+[package]
+name = "distrust_macro"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+proc-macro = true
+
+[dependencies]
+lazy_static = "1.4.0"
+syn = { version = "2.0.26", features=["full", "extra-traits"] }
+quote = "1.0"
+proc-macro2 = "1.0.66"
+convert_case = "0.6.0"
+
+
+[dependencies.server]
+path = "../server"
