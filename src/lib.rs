@@ -1,63 +1,60 @@
 #![feature(proc_macro_quote)]
 extern crate proc_macro;
-use std::{sync::{Arc, Mutex}, str::FromStr};
 use quote::format_ident;
-use syn::{ItemFn, FnArg, __private::ToTokens, Pat, parse_str, ExprTuple, Expr, ReturnType};
+use std::{
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
+use syn::{FnArg, ItemFn, Pat, __private::ToTokens, parse_str, Expr, ReturnType};
 
-use proc_macro2::{TokenStream, Ident, Span};
-use lazy_static::lazy_static;
 use convert_case::{Case, Casing};
+use lazy_static::lazy_static;
+use proc_macro2::{Ident, Span, TokenStream};
 
 lazy_static! {
-    static ref FUNCTIONS: Arc<Mutex<Vec<DistributableFunction>>> = {
-        Arc::new(Mutex::new(vec![]))
-    };
-
-    static ref MIDDLEWARE: Arc<Mutex<Vec<DistributableFunction>>> = {
-        Arc::new(Mutex::new(vec![]))
-    };
+    static ref FUNCTIONS: Arc<Mutex<Vec<DistributableFunction>>> = Arc::new(Mutex::new(vec![]));
+    static ref MIDDLEWARE: Arc<Mutex<Vec<DistributableFunction>>> = Arc::new(Mutex::new(vec![]));
 }
 
 struct DistributableFunction {
     name: String,
     arguments: Vec<(String, String)>,
     raw: String,
-    return_type: String
+    return_type: String,
 }
 
 impl DistributableFunction {
-
     fn parse(stream: &proc_macro::TokenStream) -> ItemFn {
-        let item: ItemFn = parse_str(stream.to_string().as_str()).unwrap();
-        return item
+        let item: ItemFn = parse_str(&stream.to_string()).unwrap();
+        item
     }
 
     fn new(stream: &proc_macro::TokenStream) -> Self {
-        let mut types = vec![];
-        let item = Self::parse(&stream);
+        let mut arguments = vec![];
+        let item = Self::parse(stream);
 
         for i in item.sig.inputs.iter() {
             if let FnArg::Typed(t) = i {
                 if let Pat::Ident(named_arg) = &*t.pat {
-                    types.push((named_arg.ident.to_string(), t.ty.to_token_stream().to_string()));
+                    arguments.push((
+                        named_arg.ident.to_string(),
+                        t.ty.to_token_stream().to_string(),
+                    ));
                 }
             };
-        };
-        
+        }
+
         let return_quote = match &item.sig.output {
             ReturnType::Default => quote::quote!(()),
             ReturnType::Type(_, b) => quote::quote!(#b),
         };
 
-        let distributable_function = DistributableFunction {
+        DistributableFunction {
             name: item.sig.ident.to_string(),
-            arguments: types,
+            arguments,
             raw: item.to_token_stream().to_string(),
-            return_type:  return_quote.to_token_stream().to_string()
-        };
-
-
-        distributable_function
+            return_type: return_quote.to_token_stream().to_string(),
+        }
     }
 
     fn get_name(&self) -> Ident {
@@ -118,25 +115,28 @@ impl DistributableFunction {
 
 }
 
-
 #[proc_macro_attribute]
-pub fn middleware(_here: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let dt = DistributableFunction::new(&item);
+pub fn middleware(
+    _here: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let distributable_function = DistributableFunction::new(&item);
+    MIDDLEWARE.lock().unwrap().push(distributable_function);
+
     let item = DistributableFunction::parse(&item);
-    MIDDLEWARE.lock().unwrap().push(dt);
 
-
-    let quote = quote::quote! {
+    quote::quote! {
         #[allow(dead_code)]
         #item
-    };
-
-    quote.into()
+    }
+    .into()
 }
 
-
 #[proc_macro_attribute]
-pub fn distributable(_here: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn distributable(
+    _here: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
     let mut lock = FUNCTIONS.lock().unwrap();
     let dt = DistributableFunction::new(&item);
 
@@ -210,7 +210,7 @@ pub fn build(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     tk.into()
 }
 
-fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStream {
+fn build_redirect_function(functions: &[DistributableFunction]) -> TokenStream {
     let function_definitions: Vec<ItemFn> = functions
         .iter()
         .map(|f| f.get_item_fn()) 
@@ -226,11 +226,12 @@ fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStrea
         .map(|f| f.get_arg_names())
         .collect();
 
+    // TODO: Combine these three transformations of each function as properties on a struct
+    // This way only one loop is needed, and the association between the three can be more clear.
     let wrapper_function_name_list: Vec<Ident> = functions
         .iter()
-        .map(|f| Ident::new(format!("internal_{}", f.name).as_str(), Span::call_site()))
+        .map(|f| Ident::new(&format!("internal_{}", f.name), Span::call_site()))
         .collect();
-
 
     let function_name_list: Vec<Ident> = functions
         .iter()
@@ -277,7 +278,7 @@ fn build_redirect_function(functions: &Vec<DistributableFunction>) -> TokenStrea
 
     println!("{}", function.to_token_stream().to_string());
 
-    function.into()
+    function
 }
 
 fn build_middleware_function() -> TokenStream {
@@ -285,20 +286,18 @@ fn build_middleware_function() -> TokenStream {
 
     let function_definitions: Vec<ItemFn> = functions
         .iter()
-        .map(|f| parse_str(f.raw.as_str()).unwrap())
+        .map(|f| parse_str(&f.raw).unwrap())
         .collect();
 
     let function_names: Vec<Ident> = functions
         .iter()
-        .map(|f| Ident::new(f.name.as_str(), Span::call_site()))
+        .map(|f| Ident::new(&f.name, Span::call_site()))
         .collect();
 
     let call_tupple = quote::quote! { (&d, &function_name); };
-
 
     quote::quote! {
         #(#function_definitions);*
         #(#function_names #call_tupple);*
     }
-
 }
